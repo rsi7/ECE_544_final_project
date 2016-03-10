@@ -71,6 +71,7 @@ module n4fpga (
 
     wire                clk_100MHz;
     wire                micData_sync;
+    wire                timer_pwm;
 
     reg                 sync_reg1;
     reg                 sync_reg2;
@@ -82,6 +83,8 @@ module n4fpga (
 
     assign AUD_SD = 1'b1;
     assign micLRSel = 1'b1;
+
+    assign AUD_PWM = PmodENC_SWT ? timer_pwm : micData_sync;
 
     /******************************************************************/
     /* 3-stage synchronizer                                           */
@@ -106,50 +109,50 @@ module n4fpga (
     /* EMBSYS instantiation                                           */
     /******************************************************************/
 
-  system EMBSYS (
+    system EMBSYS (
 
-    // Global signals
-    
-    .sysclk             (sysclk),
-    .sysreset_n         (sysreset_n),
-    .clk_100MHz         (clk_100MHz),
+        // Global signals
+        
+        .sysclk             (sysclk),
+        .sysreset_n         (sysreset_n),
+        .clk_100MHz         (clk_100MHz),
 
 
-    // Connections with LCD display
+        // Connections with LCD display
 
-    .PmodCLP_DataBus    (PmodCLP_DataBus),
-    .PmodCLP_E          (PmodCLP_E),
-    .PmodCLP_RS         (PmodCLP_RS),
-    .PmodCLP_RW         (PmodCLP_RW),
+        .PmodCLP_DataBus    (PmodCLP_DataBus),
+        .PmodCLP_E          (PmodCLP_E),
+        .PmodCLP_RS         (PmodCLP_RS),
+        .PmodCLP_RW         (PmodCLP_RW),
 
-    // Connections with rotary encoder
+        // Connections with rotary encoder
 
-    .PmodENC_A          (PmodENC_A),
-    .PmodENC_B          (PmodENC_B),
-    .PmodENC_BTN        (PmodENC_BTN),
-    .PmodENC_SWT        (PmodENC_SWT),
+        .PmodENC_A          (PmodENC_A),
+        .PmodENC_B          (PmodENC_B),
+        .PmodENC_BTN        (PmodENC_BTN),
+        .PmodENC_SWT        (PmodENC_SWT),
 
-    // Connections with pushbuttons & switches
+        // Connections with pushbuttons & switches
 
-    .btnC               (btnC),
-    .btnD               (btnD),
-    .btnL               (btnL),
-    .btnR               (btnR),
-    .btnU               (btnU),
-    .sw_tri_i           (sw),
+        .btnC               (btnC),
+        .btnD               (btnD),
+        .btnL               (btnL),
+        .btnR               (btnR),
+        .btnU               (btnU),
+        .sw_tri_i           (sw),
 
-    // Connections with on-board microphone
+        // Connections with on-board microphone
 
-    .AUD_PWM            (AUD_PWM),
-    .micClk             (micClk),
+        .timer_pwm          (timer_pwm),
+        .micClk             (micClk),
 
-    // Connections with LEDs
+        // Connections with LEDs
 
-    .led_tri_o          (led),
+        .led_tri_o          (led),
 
-    // Connections with UART
+        // Connections with UART
 
-    .uart_rtl_rxd       (uart_rtl_rxd),
-    .uart_rtl_txd       (uart_rtl_txd));
+        .uart_rtl_rxd       (uart_rtl_rxd),
+        .uart_rtl_txd       (uart_rtl_txd));
 
 endmodule

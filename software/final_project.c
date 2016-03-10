@@ -28,6 +28,7 @@
 #include <stdio.h>
 #include <errno.h>
 #include "PMod544IOR2.h"
+#include "pwm_tmrctr.h"
 #include "mb_interface.h"
 #include "xparameters.h"
 #include "platform_config.h"
@@ -36,7 +37,6 @@
 #include "xgpio.h"
 #include "xtmrctr.h"
 #include "xstatus.h"
-#include "xintc.h"
 
 /****************************************************************************/
 /************************** Constant Definitions ****************************/
@@ -62,6 +62,14 @@
 #define PMD544IO_BASEADDR       XPAR_PMOD544IOR2_0_S00_AXI_BASEADDR
 #define PMD544IO_HIGHADDR       XPAR_PMOD544IOR2_0_S00_AXI_HIGHADDR
 
+// PWM timer parameters
+
+#define PWM_TIMER_DEVICE_ID     XPAR_PWM_TIMER_DEVICE_ID
+#define PWM_TIMER_BASEADDR      XPAR_PWM_TIMER_BASEADDR
+#define PWM_TIMER_HIGHADDR      XPAR_PWM_TIMER_HIGHADDR
+#define DUTY_CYCLE_CHANGE       1
+#define PWM_FREQUENCY           100000
+
 // Bit masks
 
 #define MSK_CLEAR_INTR_CH1      0x00000001
@@ -74,10 +82,10 @@
 #define MSK_SW_REMOVE           0x00003E00
 #define MSK_PBTNS_REMOVE        0x0000C1FF
 
- // Miscellaneous
+// Miscellaneous
 
 #define GPIO_CHANNEL_1          1
-#define DUTY_CYCLE_CHANGE       2
+#define CPU_CLOCK_FREQ_HZ       XPAR_CPU_CORE_CLOCK_FREQ_HZ
 #define SRC_SWITCHES            0x00000001
 #define SRC_BUTTONS             0x00000002
 
@@ -96,6 +104,7 @@ XGpio       BTNInst;
 XGpio       SWInst;
 XGpio       LEDInst;
 XTmrCtr     TMRCTR0Inst;
+XTmrCtr     PWMTimerInst;
 
 /****************************************************************************/
 /*************************** Typdefs & Structures ***************************/
@@ -121,7 +130,7 @@ sem_t   btn_press_sema;                         // semaphore between clock tick 
 
 void*   master_thread(void *arg);
 void*   button_thread(void *arg);
-void*   switches_thread(void *arg);
+void*   rotary_thread(void *arg);
 void*   leds_thread(void *arg);
 
 void    button_handler(void);
@@ -132,7 +141,8 @@ XStatus init_peripherals(void);
 /***************************** Global Variables *****************************/
 /****************************************************************************/
 
-volatile    unsigned int    button_state;           // global variable to hold button values
+volatile    unsigned int    button_state;       // global variable to hold button values
+int             			rotcnt;             // global variable to hold rotary count
 
 /****************************************************************************/
 /************************** MAIN PROGRAM ************************************/
@@ -180,7 +190,7 @@ int main() {
 void* master_thread(void *arg) {
 
     pthread_t button;
-    pthread_t switches;
+    pthread_t rotary;
     pthread_t leds;
 
     pthread_attr_t attr;
@@ -193,11 +203,11 @@ void* master_thread(void *arg) {
     xil_printf("----------------------------------------------------------------------------\r\n");
     xil_printf("ECE 544 Project 3 Starter Application \r\n");
     xil_printf("----------------------------------------------------------------------------\r\n");
-    xil_printf("This Xilkernel based application reads the buttons and switches on the FPGA \r\n"
+    xil_printf("This Xilkernel based application reads the buttons and rotary on the FPGA \r\n"
                "development board and displays them on the LEDs.  Even though the application is\r\n"
                "simple it uses several of the synchronization and interprocess communication\r\n"
                "capabilities offered in the Xilkernel\r\n\r\n"
-               "To demonstrate, press any of the buttons and/or flip switches on the board.\r\n"
+               "To demonstrate, press any of the buttons and/or turn rotary on the board.\r\n"
                "The current state of the buttons and switches should be displayed on the LEDs\r\n");
     xil_printf("----------------------------------------------------------------------------\r\n\r\n\r\n");
 
@@ -225,19 +235,19 @@ void* master_thread(void *arg) {
         xil_printf("MASTER: Button thread created\r\n");
     }
 
-    // create the switches thread
+    // create the rotary thread
 
-    ret = pthread_create (&switches, &attr, (void*) switches_thread, NULL);
+    ret = pthread_create (&rotary, &attr, (void*) rotary_thread, NULL);
 
     if (ret != 0) {
 
-        xil_printf("ERROR (%d) IN MASTER THREAD: could not launch %s\r\n", ret, "switches thread");
+        xil_printf("ERROR (%d) IN MASTER THREAD: could not launch %s\r\n", ret, "rotary thread");
         xil_printf("FATAL ERROR: Master Thread Terminating\r\n");
         return (void*) -3;
     }
 
     else {
-        xil_printf("MASTER: Switches thread created\r\n");
+        xil_printf("MASTER: Rotary thread created\r\n");
     }
 
     // create the LEDs thread
@@ -246,7 +256,7 @@ void* master_thread(void *arg) {
 
     if (ret != 0) {
 
-        xil_printf("ERROR (%d) IN MASTER THREAD: could not launch %s\r\n", ret, "switches thread");
+        xil_printf("ERROR (%d) IN MASTER THREAD: could not launch %s\r\n", ret, "LEDs thread");
         xil_printf("FATAL ERROR: Master Thread Terminating\r\n");
         return (void*) -3;
     }
@@ -380,44 +390,21 @@ void* button_thread(void *arg) {
 }
 
 /****************************************************************************/
-/************************* SWITCHES THREAD **********************************/
+/************************** ROTARY THREAD ***********************************/
 /****************************************************************************/
 
-void* switches_thread(void *arg) {
-
-    unsigned int    sw      = 0x00;
-    int             ret     = 0x00;
-    int             msg_id  = 0x00;
-
-    _msg            sw_msg;
-
-    sw_msg.source = SRC_SWITCHES;
+void* rotary_thread(void *arg) {
 
     while (1) {
 
-        sw = XGpio_DiscreteRead(&SWInst, GPIO_CHANNEL_1);
-        
-        // send the switch values to the message queue
+        PMDIO_ROT_readRotcnt(&rotcnt);
+        xil_printf("Rotary thread: rotcnt is %d\r\n", rotcnt);
 
-        sw_msg.value = (sw & MSK_SW_LOWER_HALF);
-        msg_id = msgget(led_msg_key, IPC_CREAT);
-        ret = msgsnd(msg_id, &sw_msg, sizeof(_msg), 0);
+        rotcnt = MAX(0, MIN(rotcnt, 99));
 
-        // error handling if sending the message fails
-
-        if (ret == -1) {
-
-            switch (errno) {
-
-                case (EINVAL) : xil_printf("SWITCHES THREAD: Couldn't find message queue.\r\n"); break;
-                case (ENOSPC) : xil_printf("SWITCHES THREAD: Couldn't allocate space on queue.\r\n"); break;
-                default : xil_printf("SWITCHES THREAD: Error (%d) occured while sending message\r\n", errno); break;
-            }
-        }
-
-        // yield remaining time to the next thread
-
-        yield();
+        PWM_SetParams(&PWMTimerInst, PWM_FREQUENCY, rotcnt);
+        PWM_Start(&PWMTimerInst);
+        sleep(1);
     }
 
     return NULL;
@@ -527,7 +514,7 @@ XStatus init_peripherals(void) {
     XGpio_SetDataDirection(&LEDInst, GPIO_CHANNEL_1, MSK_LED_16BIT_OUTPUT);
 
     // initialize the PMod544IO
-    // rotary encoder is set to increment from 0 by DUTY_CYCLE_CHANGE 
+    // rotary encoder is set to increment from 0 by 1% 
 
     status = PMDIO_initialize(PMD544IO_BASEADDR);
 
@@ -537,6 +524,15 @@ XStatus init_peripherals(void) {
 
     PMDIO_ROT_init(DUTY_CYCLE_CHANGE, true);
     PMDIO_ROT_clear();
+
+    // initialize the PWM timer/counter instance but do not start it
+    // do not enable PWM interrupts. Clock frequency is the AXI clock frequency
+
+    status = PWM_Initialize(&PWMTimerInst, PWM_TIMER_DEVICE_ID, false, CPU_CLOCK_FREQ_HZ);
+    
+    if (status != XST_SUCCESS) {
+        return XST_FAILURE;
+    }
 
     // successfully initialized... time to return
 
