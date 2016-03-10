@@ -21,4 +21,4 @@ $ cat .gitignore
 # ignore the archive directory
 # which contains zipped copies
 
-/archive/*
+/archives/*
