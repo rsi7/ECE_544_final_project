@@ -4,7 +4,7 @@
 
 HARDWARE:
 
-- Microblaze
+- Microblaze with 128kB memory
 - AXI Timer 0 on Int(0)
 - Buttons 5-bit GPIO (input only) on Int(1)
 - SW 16-bit GPIO (input only)
