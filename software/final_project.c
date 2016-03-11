@@ -39,7 +39,6 @@
 #include "xstatus.h"
 #include "xspi.h"
 
-
 /****************************************************************************/
 /************************** Constant Definitions ****************************/
 /****************************************************************************/
@@ -73,7 +72,7 @@
 #define PWM_TIMER_BASEADDR      XPAR_PWM_TIMER_BASEADDR
 #define PWM_TIMER_HIGHADDR      XPAR_PWM_TIMER_HIGHADDR
 #define DUTY_CYCLE_CHANGE       1
-#define PWM_FREQUENCY           100000
+#define PWM_FREQUENCY           500000
 
 // Bit masks
 
@@ -95,6 +94,7 @@
 #define FIT_MAX_COUNT           10000
 #define SRC_SWITCHES            0x00000001
 #define SRC_BUTTONS             0x00000002
+#define PI                      3.14159265
 
 /****************************************************************************/
 /***************** Macros (Inline Functions) Definitions ********************/
@@ -153,6 +153,7 @@ XStatus init_peripherals(void);
 
 volatile unsigned int button_state;     // holds button values
 int rotcnt;                             // holds rotary count
+double ang_freq;                        // sine frequency in rad/sec
 
 static u8 SPI_RcvBuf[2];               // holds SPI receive data (4 zeros + 12-bits)
 
@@ -345,13 +346,8 @@ void* master_thread(void *arg) {
 
         ticks = xget_clock_ticks();
         xil_printf("MASTER: %d ticks have elapsed\r\n", ticks);
-        
-        // check & print the message queue length
+        xil_printf("MASTER: The frequency is %d\r\n", (int) rotcnt*100);
 
-        msg_id = msgget(led_msg_key, IPC_CREAT);
-        msgctl(msg_id, IPC_STAT, &led_msgstats);
-        xil_printf("MASTER: %d messages in the queue\r\n", led_msgstats.msg_qnum);
-        
         // repeat every second
 
         sleep(1000);
@@ -366,48 +362,15 @@ void* master_thread(void *arg) {
 
 void* button_thread(void *arg) {
 
-    unsigned int    btn     = 0x00;
-    int             ret     = 0x00;
-    int             msg_id  = 0x00;
-
-    _msg            btn_msg;
-
-    btn_msg.source = SRC_BUTTONS;
-
     while (1) {
 
-        // wait for sempaphore to get unlocked by button handler
-        // then immediately lock it
-
+        // wait for semaphore to become free
         sem_wait(&btn_press_sema);
 
         // read the buttons
-
-        btn = XGpio_DiscreteRead(&BTNInst, GPIO_CHANNEL_1);
-
-        // move the buttons over to led[13:9]
-
-        btn_msg.value = btn << 9;
-
-        // send the button values to the message queue
-
-        msg_id = msgget(led_msg_key, IPC_CREAT);
-        ret = msgsnd(msg_id, &btn_msg, sizeof(_msg), 0);
-
-        // error handling if sending the message fails
-
-        if (ret == -1) {
-
-            switch (errno) {
-
-                case (EINVAL) : xil_printf("BUTTON THREAD: Couldn't find message queue.\r\n"); break;
-                case (ENOSPC) : xil_printf("BUTTON THREAD: Couldn't allocate space on queue.\r\n"); break;
-                default : xil_printf("BUTTON THREAD: Error (%d) occured while sending message\r\n", errno); break;
-            }
-        }
+        button_state = XGpio_DiscreteRead(&BTNInst, GPIO_CHANNEL_1);
 
         // yield remaining time to next thread
-
         yield();
     }
 
@@ -425,10 +388,7 @@ void* rotary_thread(void *arg) {
         PMDIO_ROT_readRotcnt(&rotcnt);
         rotcnt = MAX(0, MIN(rotcnt, 99));
 
-        PWM_SetParams(&PWMTimerInst, PWM_FREQUENCY, rotcnt);
-        PWM_Start(&PWMTimerInst);
-
-        sleep(10);
+        yield();
     }
 
     return NULL;
@@ -440,58 +400,96 @@ void* rotary_thread(void *arg) {
 
 void* leds_thread(void *arg) {
 
-    unsigned int    leds    = 0x00;
-    int             ret     = 0x00;
-    int             msg_id  = 0x00;
-
-    _msg            localbuff;
-
     while (1) {
 
-        // check the message queue for new messages
-
-        msg_id = msgget(led_msg_key, IPC_CREAT);
-        ret = msgrcv(msg_id, &localbuff, sizeof(_msg), 0, 0);
-
-        // error handling in case reading the message fails
-
-        if (ret == -1) {
-
-            switch (errno) {
-
-                case (EINVAL) : xil_printf("LEDS THREAD: Couldn't find message queue.\r\n"); break;
-                case (ENOMSG) : xil_printf("LEDS THREAD: Error with the message size.\r\n"); break;
-                default : xil_printf("LEDS THREAD: Error (%d) occured while sending message\r\n", errno); break;
-            }
-        }
-
-        // depending on message source, need to toggle certain LEDs
-
-        if (localbuff.source == SRC_SWITCHES) {
-            leds &= MSK_SW_REMOVE;
-            leds |= localbuff.value;
-        }
-
-        else if (localbuff.source == SRC_BUTTONS) {
-            leds &= MSK_PBTNS_REMOVE;
-            leds |= localbuff.value;
-        }
-
-        else {
-            xil_printf("LEDS THREAD: Couldn't determine message source!\r\n");
-        }
-
-        // update the LEDs on the board
-
-        XGpio_DiscreteWrite(&LEDInst, GPIO_CHANNEL_1, leds); 
+        XGpio_DiscreteWrite(&LEDInst, GPIO_CHANNEL_1, button_state); 
 
         // yield remaining time to next thread
-
         yield();
     }
 
     return NULL;
 
+}
+
+/****************************************************************************/
+/************************** BUTTON HANDLER **********************************/
+/****************************************************************************/
+
+void button_handler(void) {
+
+    // update the global variable
+    button_state = XGpio_DiscreteRead(&BTNInst, GPIO_CHANNEL_1);
+
+    // make semaphore available again
+    sem_post(&btn_press_sema);
+
+    // acknowledge & clear interrupt flag
+    XGpio_InterruptClear(&BTNInst, MSK_CLEAR_INTR_CH1);
+    acknowledge_interrupt(BTN_GPIO_INTR_NUM);
+
+}
+
+/****************************************************************************/
+/**************************** FIT HANDLER ***********************************/
+/****************************************************************************/
+
+void fit_handler(void) {
+
+/*    static unsigned int count = 0x00;
+    unsigned int micData = 0x00;
+    XStatus status;
+    
+    if (count == FIT_MAX_COUNT) {
+
+    count = 0;
+
+    // Set the slave select mask. This mask is used by the transfer command
+    // to indicate which slave select line to enable
+
+    status = XSpi_SetSlaveSelect(&SpiInst, MSK_PMOD_MIC_SS);
+
+    if (status != XST_SUCCESS) {
+        print("FIT Handler: Failed to select slave!\r\n");
+    }
+
+    // Transfer the command and receive the mic dataADC count
+    // Device is configured for 16-bit transfers, so only one transaction needed
+
+    status = XSpi_Transfer(&SpiInst, SPI_RcvBuf, SPI_RcvBuf, 2);
+
+    if (status != XST_SUCCESS) {
+        print("FIT Handler: Failed to transfer SPI!\r\n");
+    }
+
+    // SPI transfer was successful
+    // process it for cleaned up microphone signal
+
+    micData = (SPI_RcvBuf[1] << 8) | (SPI_RcvBuf[0]);
+
+    xil_printf("FIT Handler: Mic data is %d\r\n", micData);
+
+    }
+
+    else {
+        count++;
+    }*/
+
+    static int pwm_set = 0x00;
+    static double tempo = 0;
+
+    ang_freq = (double) (rotcnt * 100) * 2 * PI;
+
+    pwm_set = (int) 50 + (50*(sin((ang_freq * tempo))));
+
+    PWM_SetParams(&PWMTimerInst, PWM_FREQUENCY, pwm_set);
+    PWM_Start(&PWMTimerInst);
+
+    tempo += 0.0001;
+
+    // acknowledge interrupt
+
+    acknowledge_interrupt(FIT_INTR_NUM);
 }
 
 /****************************************************************************/
@@ -606,75 +604,4 @@ XStatus init_peripherals(void) {
     // successfully initialized... time to return
 
     return XST_SUCCESS;
-}
-
-/****************************************************************************/
-/************************** BUTTON HANDLER **********************************/
-/****************************************************************************/
-
-void button_handler(void) {
-
-    // unlock the semaphore for button thread
-
-    sem_post(&btn_press_sema);
-
-    // update the global variable
-
-    button_state = XGpio_DiscreteRead(&BTNInst, GPIO_CHANNEL_1);
-
-    // acknowledge & clear interrupt flag
-
-    XGpio_InterruptClear(&BTNInst, MSK_CLEAR_INTR_CH1);
-    acknowledge_interrupt(BTN_GPIO_INTR_NUM);
-}
-
-/****************************************************************************/
-/**************************** FIT HANDLER ***********************************/
-/****************************************************************************/
-
-void fit_handler(void) {
-
-    static unsigned int count = 0x00;
-    unsigned int micData = 0x00;
-    XStatus status;
-    
-    if (count == FIT_MAX_COUNT) {
-
-    count = 0;
-
-    // Set the slave select mask. This mask is used by the transfer command
-    // to indicate which slave select line to enable
-
-    status = XSpi_SetSlaveSelect(&SpiInst, MSK_PMOD_MIC_SS);
-
-    if (status != XST_SUCCESS) {
-        print("FIT Handler: Failed to select slave!\r\n");
-    }
-
-    // Transfer the command and receive the mic dataADC count
-    // Device is configured for 16-bit transfers, so only one transaction needed
-
-    status = XSpi_Transfer(&SpiInst, SPI_RcvBuf, SPI_RcvBuf, 2);
-
-    if (status != XST_SUCCESS) {
-        print("FIT Handler: Failed to transfer SPI!\r\n");
-    }
-
-    // SPI transfer was successful
-    // process it for cleaned up microphone signal
-
-    micData = (SPI_RcvBuf[1] << 8) | (SPI_RcvBuf[0]);
-
-    xil_printf("FIT Handler: Mic data is %d\r\n", micData);
-
-    }
-
-
-    else {
-        count++;
-    }
-
-    // acknowledge interrupt
-
-    acknowledge_interrupt(FIT_INTR_NUM);
 }
