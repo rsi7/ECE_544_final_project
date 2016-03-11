@@ -37,6 +37,8 @@
 #include "xgpio.h"
 #include "xtmrctr.h"
 #include "xstatus.h"
+#include "xspi.h"
+
 
 /****************************************************************************/
 /************************** Constant Definitions ****************************/
@@ -44,17 +46,20 @@
 
 // Device ID
 
+#define TMRCTR0_DEVICEID        XPAR_TMRCTR_0_DEVICE_ID
 #define BTN_GPIO_DEVICEID       XPAR_BTN_5BIT_DEVICE_ID
 #define SW_GPIO_DEVICEID        XPAR_SW_16BIT_DEVICE_ID
+#define SPI_DEVICEID            XPAR_AXI_QUAD_SPI_0_DEVICE_ID
 #define LED_GPIO_DEVICEID       XPAR_LED_16BIT_DEVICE_ID
 #define INTC_DEVICEID           XPAR_INTC_0_DEVICE_ID
-#define TMRCTR0_DEVICEID        XPAR_TMRCTR_0_DEVICE_ID
 
 // Interrupt numbers
 
 #define TMRCTR0_INTR_NUM        XPAR_MICROBLAZE_0_AXI_INTC_AXI_TIMER_0_INTERRUPT_INTR
 #define BTN_GPIO_INTR_NUM       XPAR_MICROBLAZE_0_AXI_INTC_BTN_5BIT_IP2INTC_IRPT_INTR
 #define SW_GPIO_INTR_NUM        XPAR_MICROBLAZE_0_AXI_INTC_SW_16BIT_IP2INTC_IRPT_INTR
+#define FIT_INTR_NUM            XPAR_MICROBLAZE_0_AXI_INTC_FIT_TIMER_0_INTERRUPT_INTR
+#define AXI_INTR_NUM            XPAR_MICROBLAZE_0_AXI_INTC_AXI_QUAD_SPI_0_IP2INTC_IRPT_INTR
 
 // Pmod544 addresses
 
@@ -81,11 +86,13 @@
 #define MSK_SW_LOWER_HALF       0x000080FF
 #define MSK_SW_REMOVE           0x00003E00
 #define MSK_PBTNS_REMOVE        0x0000C1FF
+#define MSK_PMOD_MIC_SS         0x00000000
 
 // Miscellaneous
 
 #define GPIO_CHANNEL_1          1
 #define CPU_CLOCK_FREQ_HZ       XPAR_CPU_CORE_CLOCK_FREQ_HZ
+#define FIT_MAX_COUNT           10000
 #define SRC_SWITCHES            0x00000001
 #define SRC_BUTTONS             0x00000002
 
@@ -105,6 +112,7 @@ XGpio       SWInst;
 XGpio       LEDInst;
 XTmrCtr     TMRCTR0Inst;
 XTmrCtr     PWMTimerInst;
+XSpi        SpiInst;
 
 /****************************************************************************/
 /*************************** Typdefs & Structures ***************************/
@@ -134,6 +142,8 @@ void*   rotary_thread(void *arg);
 void*   leds_thread(void *arg);
 
 void    button_handler(void);
+void    fit_handler(void);
+
 
 XStatus init_peripherals(void);
 
@@ -141,8 +151,10 @@ XStatus init_peripherals(void);
 /***************************** Global Variables *****************************/
 /****************************************************************************/
 
-volatile    unsigned int    button_state;       // global variable to hold button values
-int             			rotcnt;             // global variable to hold rotary count
+volatile unsigned int button_state;     // holds button values
+int rotcnt;                             // holds rotary count
+
+static u8 SPI_RcvBuf[2];               // holds SPI receive data (4 zeros + 12-bits)
 
 /****************************************************************************/
 /************************** MAIN PROGRAM ************************************/
@@ -306,9 +318,22 @@ void* master_thread(void *arg) {
         xil_printf("MASTER: Button interrupt handler created successfully\r\n");
     }
 
+    // register the FIT handler
+
+    ret = register_int_handler(FIT_INTR_NUM, (void*) fit_handler, NULL);
+
+    if (ret != XST_SUCCESS) {
+        return (void*) -4;
+    }
+
+    else {
+        xil_printf("MASTER: FIT handler created successfully\r\n");
+    }
+
     // enable interrupts...we're off to the races
 
     enable_interrupt(BTN_GPIO_INTR_NUM);
+    enable_interrupt(FIT_INTR_NUM);
 
     xil_printf("MASTER: Interrupts have been enabled\r\n");
 
@@ -398,13 +423,12 @@ void* rotary_thread(void *arg) {
     while (1) {
 
         PMDIO_ROT_readRotcnt(&rotcnt);
-        xil_printf("Rotary thread: rotcnt is %d\r\n", rotcnt);
-
         rotcnt = MAX(0, MIN(rotcnt, 99));
 
         PWM_SetParams(&PWMTimerInst, PWM_FREQUENCY, rotcnt);
         PWM_Start(&PWMTimerInst);
-        sleep(1);
+
+        sleep(10);
     }
 
     return NULL;
@@ -476,7 +500,8 @@ void* leds_thread(void *arg) {
 
 XStatus init_peripherals(void) {
 
-    int status;             // status from Xilinx Lib calls
+    int status;                 // status from Xilinx Lib calls
+    XSpi_Config *ConfigPtr;     // Pointer to SPI configuration data
 
     // initialize the button GPIO instance
 
@@ -534,6 +559,50 @@ XStatus init_peripherals(void) {
         return XST_FAILURE;
     }
 
+    // lookup SPI configuration
+
+    ConfigPtr = XSpi_LookupConfig(SPI_DEVICEID);
+
+    if (ConfigPtr == NULL) {
+        print("ERROR: Couldn't find SPI device!\r\n");
+        return XST_DEVICE_NOT_FOUND;
+    }
+
+    // initialize the SPI device
+
+    status = XSpi_CfgInitialize(&SpiInst, ConfigPtr, ConfigPtr->BaseAddress);
+
+    if (status != XST_SUCCESS) {
+        print("ERROR: Couldn't initialize SPI device!\r\n");
+        return XST_FAILURE;
+    }
+
+    // Perform a self-test to ensure that it was built correctly
+
+    status = XSpi_SelfTest(&SpiInst);
+
+    if (status != XST_SUCCESS) {
+        print("ERROR: SPI device failed self-test!\r\n");
+        return XST_FAILURE;
+    }
+
+    // Set the SPI device as a master,
+    // SS goes low for entire transaction (does not toggle every 8 bits)
+    // All other bits are OK as defaults
+
+    status = XSpi_SetOptions(&SpiInst, XSP_MASTER_OPTION | XSP_MANUAL_SSELECT_OPTION | XSP_CLK_ACTIVE_LOW_OPTION);
+
+    if (status != XST_SUCCESS) {
+        print("ERROR: Couldn't set SPI options!\r\n");
+        return XST_FAILURE;
+    }
+
+    // Start the SPI driver so that the device is enabled,
+    // and then disable the Global interrupt
+
+    XSpi_Start(&SpiInst);
+    XSpi_IntrGlobalDisable(&SpiInst);
+
     // successfully initialized... time to return
 
     return XST_SUCCESS;
@@ -557,4 +626,55 @@ void button_handler(void) {
 
     XGpio_InterruptClear(&BTNInst, MSK_CLEAR_INTR_CH1);
     acknowledge_interrupt(BTN_GPIO_INTR_NUM);
+}
+
+/****************************************************************************/
+/**************************** FIT HANDLER ***********************************/
+/****************************************************************************/
+
+void fit_handler(void) {
+
+    static unsigned int count = 0x00;
+    unsigned int micData = 0x00;
+    XStatus status;
+    
+    if (count == FIT_MAX_COUNT) {
+
+    count = 0;
+
+    // Set the slave select mask. This mask is used by the transfer command
+    // to indicate which slave select line to enable
+
+    status = XSpi_SetSlaveSelect(&SpiInst, MSK_PMOD_MIC_SS);
+
+    if (status != XST_SUCCESS) {
+        print("FIT Handler: Failed to select slave!\r\n");
+    }
+
+    // Transfer the command and receive the mic dataADC count
+    // Device is configured for 16-bit transfers, so only one transaction needed
+
+    status = XSpi_Transfer(&SpiInst, SPI_RcvBuf, SPI_RcvBuf, 2);
+
+    if (status != XST_SUCCESS) {
+        print("FIT Handler: Failed to transfer SPI!\r\n");
+    }
+
+    // SPI transfer was successful
+    // process it for cleaned up microphone signal
+
+    micData = (SPI_RcvBuf[1] << 8) | (SPI_RcvBuf[0]);
+
+    xil_printf("FIT Handler: Mic data is %d\r\n", micData);
+
+    }
+
+
+    else {
+        count++;
+    }
+
+    // acknowledge interrupt
+
+    acknowledge_interrupt(FIT_INTR_NUM);
 }

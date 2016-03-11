@@ -59,6 +59,12 @@ module n4fpga (
     output              AUD_PWM,
     output              AUD_SD,
 
+    // SPI microphone board
+
+    input 				SPI_MISO,
+    output 				SPI_SS,
+    output 				SPI_CLK,
+
     // Microphone signals
 
     input               micData,                // incoming PDM data from on-board mic -> system
@@ -70,6 +76,9 @@ module n4fpga (
     /******************************************************************/
 
     wire                clk_100MHz;
+    wire 				clk_6MHz;
+    wire 				clk_3MHz;
+
     wire                micData_sync;
     wire                timer_pwm;
 
@@ -104,6 +113,33 @@ module n4fpga (
     end
 
     assign micData_sync = sync_reg3;
+
+	//******************************************************************/
+	//* 3.072MHz Clock Generator							           */
+	//******************************************************************/
+
+	// Use built-in BUFR device to divide 6.144MHz clock --> 3.072MHz clock
+	// because ClockWiz cannot generate lower than 4MHz
+
+	BUFR  #(
+
+		.BUFR_DIVIDE	(2),
+		.SIM_DEVICE		("7SERIES"))
+
+	ClkDivideBy2 (
+
+		.I			(clk_6MHz),
+		.CE			(1'b1),
+		.CLR 		(1'b0),
+		.O			(clk_3MHz));
+   
+	// Buffering the 3.072MHz clock
+	// then send it to the microphone
+   
+	BUFG ClkDivBuf(
+
+		.I 			(clk_3MHz),
+		.O			(micClk));
 
     /******************************************************************/
     /* EMBSYS instantiation                                           */
@@ -144,12 +180,27 @@ module n4fpga (
         // Connections with on-board microphone
 
         .timer_pwm          (timer_pwm),
-        .micClk             (micClk),
+        .clk_6MHz 			(clk_6MHz),
 
         // Connections with LEDs
 
         .led_tri_o          (led),
 
+        // Connections with SPI microphone board
+        
+        .spi_rtl_io0_i      (		),  		// I [0] Behaves similar to master output slave input (MOSI) input pin
+        .spi_rtl_io0_o      (		),			// O [0] Behaves similar to the master output slave input (MOSI) output pin
+        .spi_rtl_io0_t      (		),	 		// O [0] 3-state enable master output slave input (active low)
+        .spi_rtl_io1_i      (SPI_MISO),			// I [0] Behaves similar to the master input slave output (MISO) input
+        .spi_rtl_io1_o      (		),			// O [0] Behaves similar to master input slave output (MISO) output
+        .spi_rtl_io1_t      ( 		),	 		// O [0] 3-state enable master input slave output (active low)
+        .spi_rtl_sck_i      ( 		), 			// I [0] SPI bus clock input
+        .spi_rtl_sck_o      (SPI_CLK),			// O [0] SPI bus clock output
+        .spi_rtl_sck_t      ( 		),			// O [0] 3-state enable for SPI bus clock (active-Low)
+        .spi_rtl_ss_i       ( 		), 			// I [0] This input is not used in the design in any mode
+        .spi_rtl_ss_o       (SPI_SS),			// O [0] one-hot encoded, active-low slave select vector of length n
+        .spi_rtl_ss_t       ( 		),			// O [0] 3-state enable for slave select (active-low)
+        
         // Connections with UART
 
         .uart_rtl_rxd       (uart_rtl_rxd),

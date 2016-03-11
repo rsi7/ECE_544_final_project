@@ -36,3 +36,15 @@ SOFTWARE:
 - Changed switches_thread to rotary_thread
 - Read rotary count values successfully
 - Adjust PWM based on rotary count
+
+///////////////////////////////////////////////////////////
+//////////////////////// Version 3 ////////////////////////
+///////////////////////////////////////////////////////////
+
+HARDWARE:
+
+- Added FIT Timer with clock count of 10000
+- FIT Timer connected to Int(0)
+- Added AXI SPI with data width 16-bits (modes: standard, master)
+- AXI SPI connected to Int(4)
+- Divided 6MHz clock to 3MHz
