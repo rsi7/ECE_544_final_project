@@ -43,7 +43,7 @@ SOFTWARE:
 
 HARDWARE:
 
-- Added FIT Timer with clock count of 10000
+- Added FIT Timer with clock count of 5000
 - FIT Timer connected to Int(0)
 - Added AXI SPI with data width 16-bits (modes: standard, master)
 - AXI SPI connected to Int(4)
@@ -55,3 +55,4 @@ SOFTWARE:
 - Got FIT interrupt handler working
 - Initialized SPI device
 - Test PWM on jack output with rotary-controlled sine wave
+- Receiving SPI mic data

@@ -82,9 +82,9 @@ module n4fpga (
     wire                micData_sync;
     wire                timer_pwm;
 
-    reg                 sync_reg1;
-    reg                 sync_reg2;
-    reg                 sync_reg3;
+    reg                 mic_sync1;
+    reg                 mic_sync2;
+    reg                 mic_sync3;
 
     /******************************************************************/
     /* Global Assignments                                             */
@@ -96,23 +96,23 @@ module n4fpga (
     assign AUD_PWM = PmodENC_SWT ? timer_pwm : micData_sync;
 
     /******************************************************************/
-    /* 3-stage synchronizer                                           */
+    /* 3-stage synchronizer for micData                               */
     /******************************************************************/    
 
     always@(posedge clk_100MHz) begin
 
         if (!sysreset_n) begin
-            sync_reg1 <= 1'b0;
-            sync_reg2 <= 1'b0;
-            sync_reg3 <= 1'b0;
+            mic_sync1 <= 1'b0;
+            mic_sync2 <= 1'b0;
+            mic_sync3 <= 1'b0;
         end
 
         else begin
-            {sync_reg3, sync_reg2, sync_reg1} <= {sync_reg2, sync_reg1, micData};
+            {mic_sync3, mic_sync2, mic_sync1} <= {mic_sync2, mic_sync1, micData};
         end
     end
 
-    assign micData_sync = sync_reg3;
+    assign micData_sync = mic_sync3;
 
 	//******************************************************************/
 	//* 3.072MHz Clock Generator							           */
@@ -191,7 +191,7 @@ module n4fpga (
         .spi_rtl_io0_i      (		),  		// I [0] Behaves similar to master output slave input (MOSI) input pin
         .spi_rtl_io0_o      (		),			// O [0] Behaves similar to the master output slave input (MOSI) output pin
         .spi_rtl_io0_t      (		),	 		// O [0] 3-state enable master output slave input (active low)
-        .spi_rtl_io1_i      (SPI_MISO),			// I [0] Behaves similar to the master input slave output (MISO) input
+        .spi_rtl_io1_i      (SPI_MISO),         // I [0] Behaves similar to the master input slave output (MISO) input
         .spi_rtl_io1_o      (		),			// O [0] Behaves similar to master input slave output (MISO) output
         .spi_rtl_io1_t      ( 		),	 		// O [0] 3-state enable master input slave output (active low)
         .spi_rtl_sck_i      ( 		), 			// I [0] SPI bus clock input

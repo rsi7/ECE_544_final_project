@@ -85,7 +85,7 @@
 #define MSK_SW_LOWER_HALF       0x000080FF
 #define MSK_SW_REMOVE           0x00003E00
 #define MSK_PBTNS_REMOVE        0x0000C1FF
-#define MSK_PMOD_MIC_SS         0x00000000
+#define MSK_PMOD_MIC_SS         0x00000001
 
 // Miscellaneous
 
@@ -345,8 +345,8 @@ void* master_thread(void *arg) {
         // get & print the kernel time
 
         ticks = xget_clock_ticks();
-        xil_printf("MASTER: %d ticks have elapsed\r\n", ticks);
-        xil_printf("MASTER: The frequency is %d\r\n", (int) rotcnt*100);
+/*        xil_printf("MASTER: %d ticks have elapsed\r\n", ticks);
+        xil_printf("MASTER: The frequency is %d\r\n", (int) rotcnt*100);*/
 
         // repeat every second
 
@@ -440,7 +440,7 @@ void fit_handler(void) {
     unsigned int micData = 0x00;
     XStatus status;
     
-    if (count == FIT_MAX_COUNT) {
+    if (count == FIT_MAX_COUNT/100) {
 
     count = 0;
 
@@ -467,7 +467,7 @@ void fit_handler(void) {
 
     micData = (SPI_RcvBuf[1] << 8) | (SPI_RcvBuf[0]);
 
-    xil_printf("FIT Handler: Mic data is %d\r\n", micData);
+    xil_printf("%d\r\n", micData);
 
     }
 
