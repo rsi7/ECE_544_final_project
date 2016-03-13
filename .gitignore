@@ -18,6 +18,10 @@ $ cat .gitignore
 
 /ip/*
 
+# ignore the ip_repo directory
+
+/ip_repo/*
+
 # ignore the archive directory
 # which contains zipped copies
 

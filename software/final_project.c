@@ -38,6 +38,7 @@
 #include "xtmrctr.h"
 #include "xstatus.h"
 #include "xspi.h"
+#include "ChorusBuffer.h"
 
 /****************************************************************************/
 /************************** Constant Definitions ****************************/
@@ -65,6 +66,12 @@
 #define PMD544IO_DEVICE_ID      XPAR_PMOD544IOR2_0_DEVICE_ID
 #define PMD544IO_BASEADDR       XPAR_PMOD544IOR2_0_S00_AXI_BASEADDR
 #define PMD544IO_HIGHADDR       XPAR_PMOD544IOR2_0_S00_AXI_HIGHADDR
+
+// ChorusBuffer addresses
+
+#define CHORUSBUFFER_DEVICE_ID 	XPAR_CHORUSBUFFER_0_DEVICE_ID
+#define CHORUSBUFFER_BASEADDR   XPAR_CHORUSBUFFER_0_S00_AXI_BASEADDR
+#define CHORUSBUFFER_HIGHADDR   XPAR_CHORUSBUFFER_0_S00_AXI_HIGHADDR
 
 // PWM timer parameters
 
@@ -212,6 +219,7 @@ void* master_thread(void *arg) {
     int ret;
     unsigned int ticks;
     int msg_id;
+    unsigned int readback = 0x0000;
 
     xil_printf("----------------------------------------------------------------------------\r\n");
     xil_printf("ECE 544 Project 3 Starter Application \r\n");
@@ -348,6 +356,10 @@ void* master_thread(void *arg) {
 /*        xil_printf("MASTER: %d ticks have elapsed\r\n", ticks);
         xil_printf("MASTER: The frequency is %d\r\n", (int) rotcnt*100);*/
 
+        ChorusBuffer_WriteLine(100, 666);
+        readback = ChorusBuffer_ReadLine(100);
+        xil_printf("The ChorusBuffer read is: %d", readback);
+
         // repeat every second
 
         sleep(1000);
@@ -446,7 +458,7 @@ void fit_handler(void) {
     // Set the slave select mask. This mask is used by the transfer command
     // to indicate which slave select line to enable
 
-    status = XSpi_SetSlaveSelect(&SpiInst, MSK_PMOD_MIC_SS);
+/*    status = XSpi_SetSlaveSelect(&SpiInst, MSK_PMOD_MIC_SS);
 
     if (status != XST_SUCCESS) {
         print("FIT Handler: Failed to select slave!\r\n");
@@ -466,8 +478,8 @@ void fit_handler(void) {
 
     micData = ((SPI_RcvBuf[0] << 4) | (SPI_RcvBuf[1] << 0)) & 0xFFF;
 
-
-/*    static int pwm_set = 0x00;
+*/
+/*    static int pwm_set = 0x00;*/
     static double tempo = 0;
 
     ang_freq = (double) (rotcnt * 100) * 2 * PI;
@@ -477,7 +489,7 @@ void fit_handler(void) {
     PWM_SetParams(&PWMTimerInst, PWM_FREQUENCY, pwm_set);
     PWM_Start(&PWMTimerInst);
 
-    tempo += 0.0001;*/
+    tempo += 0.0001;
 
     pwm_set = MAX(0, MIN(micData >> 8, 100));
 
@@ -545,6 +557,15 @@ XStatus init_peripherals(void) {
 
     PMDIO_ROT_init(DUTY_CYCLE_CHANGE, true);
     PMDIO_ROT_clear();
+
+    // initialize the ChorusBuffer
+
+    status = ChorusBuffer_initialize(CHORUSBUFFER_BASEADDR);
+
+    if (status != XST_SUCCESS) {
+        print("Failed to initialize ChorusBuffer!\r\n");
+        return XST_FAILURE;
+    }
 
     // initialize the PWM timer/counter instance but do not start it
     // do not enable PWM interrupts. Clock frequency is the AXI clock frequency
