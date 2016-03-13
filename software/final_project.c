@@ -155,7 +155,7 @@ volatile unsigned int button_state;     // holds button values
 int rotcnt;                             // holds rotary count
 double ang_freq;                        // sine frequency in rad/sec
 
-static u8 SPI_RcvBuf[2];               // holds SPI receive data (4 zeros + 12-bits)
+static u8 SPI_RcvBuf[2];               	// holds SPI receive data (4 zeros + 12-bits)
 
 /****************************************************************************/
 /************************** MAIN PROGRAM ************************************/
@@ -436,14 +436,13 @@ void button_handler(void) {
 
 void fit_handler(void) {
 
-/*    static unsigned int count = 0x00;
+    static unsigned int count = 0x00;
     unsigned int micData = 0x00;
+
+    static int pwm_set = 0x00;
+
     XStatus status;
     
-    if (count == FIT_MAX_COUNT/100) {
-
-    count = 0;
-
     // Set the slave select mask. This mask is used by the transfer command
     // to indicate which slave select line to enable
 
@@ -465,17 +464,10 @@ void fit_handler(void) {
     // SPI transfer was successful
     // process it for cleaned up microphone signal
 
-    micData = (SPI_RcvBuf[1] << 8) | (SPI_RcvBuf[0]);
+    micData = ((SPI_RcvBuf[0] << 4) | (SPI_RcvBuf[1] << 0)) & 0xFFF;
 
-    xil_printf("%d\r\n", micData);
 
-    }
-
-    else {
-        count++;
-    }*/
-
-    static int pwm_set = 0x00;
+/*    static int pwm_set = 0x00;
     static double tempo = 0;
 
     ang_freq = (double) (rotcnt * 100) * 2 * PI;
@@ -485,7 +477,13 @@ void fit_handler(void) {
     PWM_SetParams(&PWMTimerInst, PWM_FREQUENCY, pwm_set);
     PWM_Start(&PWMTimerInst);
 
-    tempo += 0.0001;
+    tempo += 0.0001;*/
+
+    pwm_set = MAX(0, MIN(micData >> 8, 100));
+
+    PWM_SetParams(&PWMTimerInst, PWM_FREQUENCY, pwm_set);
+    PWM_Start(&PWMTimerInst);
+
 
     // acknowledge interrupt
 
