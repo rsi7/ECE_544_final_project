@@ -80,7 +80,7 @@ HARDWARE:
 - Created DelayBuffer IP from BlockRAM (16-bit wide, 65k deep)
 - Added IP to embedded system with AXI (write-only)
 - Removed PWM timer + interrupt
-- Removed FIT timer
+- Changed FIT timer to 16kKhz
 - Created AudioOutput module to generate PDM stream
 - Tested AudioOutput with 262kHz, 1MHz, 3MHz clock inputs
 
@@ -89,4 +89,4 @@ SOFTWARE:
 - Wrote DelayBuffer drivers
 - Tested drivers in application (grainy audio output using SPI mic input)
 - Removed xilkernel and replaced with standalone OS
-- Removed FIT handler + added switch handler
+- Added FIT handler + added switch handler

@@ -50,9 +50,10 @@
 #define LED_GPIO_DEVICE_ID          XPAR_LED_16BIT_DEVICE_ID
 #define INTC_DEVICE_ID              XPAR_INTC_0_DEVICE_ID
 
+
 // Interrupt numbers
 
-#define TIMER_INTERRUPT_ID          XPAR_MICROBLAZE_0_AXI_INTC_AXI_TIMER_0_INTERRUPT_INTR
+#define FIT_INTERRUPT_ID            XPAR_MICROBLAZE_0_AXI_INTC_FIT_TIMER_0_INTERRUPT_INTR
 #define BTN_INTERRUPT_ID            XPAR_MICROBLAZE_0_AXI_INTC_BTN_5BIT_IP2INTC_IRPT_INTR
 #define SW_INTERRUPT_ID             XPAR_MICROBLAZE_0_AXI_INTC_SW_16BIT_IP2INTC_IRPT_INTR
 
@@ -138,12 +139,10 @@ static u8 SPI_RcvBuf[2];               	// holds SPI receive data (4 zeros + 12-
 /************************** MAIN PROGRAM ************************************/
 /****************************************************************************/
 
-void main(void) {
+int main (void) {
 
     XStatus status;
-
-    unsigned int    i           = 0x00;
-    unsigned int    micData     = 0x00;
+    unsigned int leds;
 
     // initialize the platform and the peripherals
 
@@ -168,41 +167,14 @@ void main(void) {
 
     while(1) {
 
-        status = XSpi_SetSlaveSelect(&SpiInst, MSK_PMOD_MIC_SS);
+        // endlessly update the LEDs
 
-        if (status != XST_SUCCESS) {
-            print("MAIN LOOP: Failed to select SPI slave!\r\n");
-        }
-
-        for (i = 0; i < 65536; i++) {
-
-            // Transfer the command and receive the mic dataADC count
-
-            status = XSpi_Transfer(&SpiInst, SPI_RcvBuf, SPI_RcvBuf, 2);
-
-            if (status != XST_SUCCESS) {
-                print("MAIN LOOP: Failed to transfer SPI!\r\n");
-            }
-
-            // SPI transfer was successful
-            // process it for cleaned up microphone signal
-
-            micData = ((SPI_RcvBuf[0] << 8) | (SPI_RcvBuf[1] << 4)) & 0xFFF;
-            DelayBuffer_WriteLine(i, micData);
-
-        }
-
-        // repeat every 4 seconds
-
-        PMDIO_ROT_readRotcnt(&rotcnt);
-        xil_printf("MAIN LOOP: rotary count is %d\r\n", rotcnt);
-
-        xil_printf("MAIN LOOP: button state is %d\r\n", button_state);
-        xil_printf("MAIN LOOP: switch state is %d\r\n", switch_state);
+        leds = (button_state << 8) | (switch_state);
+        XGpio_DiscreteWrite(&LEDInst, GPIO_CHANNEL_1, leds); 
 
     }
 
-    return;
+    return 0;
 }
 
 /****************************************************************************/
@@ -233,6 +205,45 @@ void switch_handler(void) {
 
     // acknowledge & clear interrupt flag
     XGpio_InterruptClear(&SWInst, MSK_CLEAR_INTR_CH1);
+
+    return;
+}
+
+/****************************************************************************/
+/***************************** FIT HANDLER **********************************/
+/****************************************************************************/
+
+void fit_handler(void) {
+
+    XStatus status;
+    static unsigned int i = 0x00;
+    unsigned int micData = 0x00;
+
+    if (i >= 65535) {
+        i = 0;
+    } 
+
+    status = XSpi_SetSlaveSelect(&SpiInst, MSK_PMOD_MIC_SS);
+
+    if (status != XST_SUCCESS) {
+        print("MAIN LOOP: Failed to select SPI slave!\r\n");
+    }
+
+    // Transfer the command and receive the mic dataADC count
+
+    status = XSpi_Transfer(&SpiInst, SPI_RcvBuf, SPI_RcvBuf, 2);
+
+    if (status != XST_SUCCESS) {
+        print("MAIN LOOP: Failed to transfer SPI!\r\n");
+    }
+
+    // SPI transfer was successful
+    // process it for cleaned up microphone signal
+
+    micData = ((SPI_RcvBuf[0] << 8) | (SPI_RcvBuf[1] << 4)) & 0x0000FFFF;
+    DelayBuffer_WriteLine(i, micData);
+
+    i++;
 
     return;
 }
@@ -379,12 +390,21 @@ XStatus init_peripherals(void) {
         return XST_FAILURE;
     }
  
-     // connect the switch handler to the interrupt
+    // connect the switch handler to the interrupt
     
     status = XIntc_Connect(&IntrptCtlrInst, SW_INTERRUPT_ID, (XInterruptHandler)switch_handler, (void *)0);
 
     if (status != XST_SUCCESS) {
         print("INIT_PERIPH: Failed to connect switch handler as interrupt!\r\n");
+        return XST_FAILURE;
+    }
+
+    // connect the FIT handler to the interrupt
+    
+    status = XIntc_Connect(&IntrptCtlrInst, FIT_INTERRUPT_ID, (XInterruptHandler)fit_handler, (void *)0);
+
+    if (status != XST_SUCCESS) {
+        print("INIT_PERIPH: Failed to connect FIT handler as interrupt!\r\n");
         return XST_FAILURE;
     }
 
@@ -403,6 +423,7 @@ XStatus init_peripherals(void) {
 
     XIntc_Enable(&IntrptCtlrInst, BTN_INTERRUPT_ID);
     XIntc_Enable(&IntrptCtlrInst, SW_INTERRUPT_ID);
+    XIntc_Enable(&IntrptCtlrInst, FIT_INTERRUPT_ID);
 
     // successfully initialized... time to return
 
