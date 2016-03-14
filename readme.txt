@@ -56,3 +56,37 @@ SOFTWARE:
 - Initialized SPI device
 - Test PWM on jack output with rotary-controlled sine wave
 - Receiving SPI mic data
+
+///////////////////////////////////////////////////////////
+//////////////////////// Version 4 ////////////////////////
+///////////////////////////////////////////////////////////
+
+HARDWARE:
+
+- Created ChorusBuffer IP from BlockRAM (16-bit wide, 65k deep)
+- Added IP to embedded system with AXI (read/write)
+
+SOFTWARE:
+
+- Wrote ChorusBuffer drivers
+- Tested drivers in application
+
+///////////////////////////////////////////////////////////
+//////////////////////// Version 5 ////////////////////////
+///////////////////////////////////////////////////////////
+
+HARDWARE:
+
+- Created DelayBuffer IP from BlockRAM (16-bit wide, 65k deep)
+- Added IP to embedded system with AXI (write-only)
+- Removed PWM timer + interrupt
+- Removed FIT timer
+- Created AudioOutput module to generate PDM stream
+- Tested AudioOutput with 262kHz, 1MHz, 3MHz clock inputs
+
+SOFTWARE:
+
+- Wrote DelayBuffer drivers
+- Tested drivers in application (grainy audio output using SPI mic input)
+- Removed xilkernel and replaced with standalone OS
+- Removed FIT handler + added switch handler

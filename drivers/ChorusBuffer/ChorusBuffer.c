@@ -26,7 +26,7 @@
 #include "stdio.h"
 #include "xil_io.h"
 #include "ChorusBuffer_l.h"
-#include "CHorusBuffer.h"
+#include "ChorusBuffer.h"
 
 /****************************************************************************/
 /************************** Variable Definitions ****************************/
