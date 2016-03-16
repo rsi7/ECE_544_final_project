@@ -137,3 +137,4 @@ SOFTWARE:
 - Added commenting
 - Fixed issue with float <--> int conversion
 - Added FIT Handler back in to increment unused variable
+- Added executables folder for BIT and ELF files
