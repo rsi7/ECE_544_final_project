@@ -83,12 +83,17 @@ module n4fpga (
     wire                clk_262kHz;
     reg     [31:0]      count;
 
-/*    wire                clk_1MHz;
-    wire                clk_1MHz_buff;*/
+    wire                clk_1MHz;
+    wire                clk_1MHz_buff;
 
     wire    [15:0]      addrb;
     wire    [15:0]      doutb;
 
+    wire                wea;
+    wire    [15:0]      addra;
+    wire    [15:0]      dina;
+
+    wire                PWM_out;
     wire                micData_sync;
 
     reg                 mic_sync1;
@@ -102,21 +107,16 @@ module n4fpga (
     assign AUD_SD = 1'b1;
     assign micLRSel = 1'b1;
 
+    assign AUD_PWM = sw[15] ? PDM_out : micData_sync;
+    
     /******************************************************************/
     /* 3-stage synchronizer for micData                               */
     /******************************************************************/    
 
-    always@(posedge clk_100MHz) begin
+    always@(posedge micClk) begin
 
-        if (!sysreset_n) begin
-            mic_sync1 <= 1'b0;
-            mic_sync2 <= 1'b0;
-            mic_sync3 <= 1'b0;
-        end
+        {mic_sync3, mic_sync2, mic_sync1} <= {mic_sync2, mic_sync1, micData};
 
-        else begin
-            {mic_sync3, mic_sync2, mic_sync1} <= {mic_sync2, mic_sync1, micData};
-        end
     end
 
     assign micData_sync = mic_sync3;
@@ -173,26 +173,8 @@ module n4fpga (
     BUFG ClkDivBufAgain(
 
         .I          (clk_1MHz),
-        .O          (clk_1MHz_buff));*/
-
-
-    //******************************************************************/
-    //* 262kHz Clock Generator                                         */
-    //******************************************************************/
-
-    always@(posedge clk_100MHz) begin
-        if (count == 381) begin
-            count <= 0;
-            clk_262kHz_reg <= ~clk_262kHz_reg;
-        end
-
-        else begin
-            count <= count + 1;
-        end
-    end
-
-    assign clk_262kHz = clk_262kHz_reg;
-
+        .O          (clk_1MHz_buff));
+*/
     /******************************************************************/
     /* EMBSYS instantiation                                           */
     /******************************************************************/
@@ -233,26 +215,18 @@ module n4fpga (
 
         .led_tri_o          (led),
 
-        // Connections with SPI microphone board
-        
-        .spi_rtl_io0_i      (		),  		// I [0] Behaves similar to master output slave input (MOSI) input pin
-        .spi_rtl_io0_o      (		),			// O [0] Behaves similar to the master output slave input (MOSI) output pin
-        .spi_rtl_io0_t      (		),	 		// O [0] 3-state enable master output slave input (active low)
-        .spi_rtl_io1_i      (SPI_MISO),         // I [0] Behaves similar to the master input slave output (MISO) input
-        .spi_rtl_io1_o      (		),			// O [0] Behaves similar to master input slave output (MISO) output
-        .spi_rtl_io1_t      ( 		),	 		// O [0] 3-state enable master input slave output (active low)
-        .spi_rtl_sck_i      ( 		), 			// I [0] SPI bus clock input
-        .spi_rtl_sck_o      (SPI_CLK),			// O [0] SPI bus clock output
-        .spi_rtl_sck_t      ( 		),			// O [0] 3-state enable for SPI bus clock (active-Low)
-        .spi_rtl_ss_i       ( 		), 			// I [0] This input is not used in the design in any mode
-        .spi_rtl_ss_o       (SPI_SS),			// O [0] one-hot encoded, active-low slave select vector of length n
-        .spi_rtl_ss_t       ( 		),			// O [0] 3-state enable for slave select (active-low)
-
         // connections with AudioOutput module
 
         .addrb              (addrb),
         .clkb               (micClk),
         .doutb              (doutb),
+
+        // connections with AudioInput module
+
+        .clka               (micClk),           // input wire clka
+        .wea                (wea),              // input wire [0 : 0] wea
+        .addra              (addra),            // input wire [15 : 0] addra
+        .dina               (dina),             // input wire [15 : 0] dina
         
         // Connections with UART
 
@@ -261,7 +235,7 @@ module n4fpga (
 
 
     /******************************************************************/
-    /* EMBSYS instantiation                                           */
+    /* AudioOutput instantiation                                      */
     /******************************************************************/
 
     AudioOutput audiogen (
@@ -270,7 +244,22 @@ module n4fpga (
         .data_in        (doutb),                // data read from the DelayBuffer
         .clk            (micClk),               // 
 
-        .PDM_out        (AUD_PWM),              // output audio stream going to on-board jack
+        .PDM_out        (PDM_out),              // output audio stream going to on-board jack
         .read_address   (addrb));               // data address to read in DelayBuffer
+
+    /******************************************************************/
+    /* AudioInput  instantiation                                      */
+    /******************************************************************/
+
+    AudioInput audioread (
+
+        .sw             (sw[1:0]),
+        .clk            (micClk),               // 3MHz clock
+        .PDM_in         (micData_sync),         // synchronized PDM data from on-board mic
+
+        .write_address  (addra),                // data address to read in DelayBuffer
+        .write_enable   (wea),
+        .write_data     (dina));
+
 
 endmodule

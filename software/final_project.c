@@ -30,12 +30,12 @@
 #include "pwm_tmrctr.h"
 #include "xgpio.h"
 #include "xtmrctr.h"
-#include "xspi.h"
 #include "xintc.h"
 
 #include "PMod544IOR2.h" 
 #include "ChorusBuffer.h"
 #include "DelayBuffer.h"
+#include "InputBuffer.h"
 
 /****************************************************************************/
 /************************** Constant Definitions ****************************/
@@ -46,7 +46,6 @@
 #define TIMER_DEVICE_ID             XPAR_TMRCTR_0_DEVICE_ID
 #define BTN_GPIO_DEVICE_ID          XPAR_BTN_5BIT_DEVICE_ID
 #define SW_GPIO_DEVICE_ID           XPAR_SW_16BIT_DEVICE_ID
-#define SPI_DEVICE_ID               XPAR_AXI_QUAD_SPI_0_DEVICE_ID
 #define LED_GPIO_DEVICE_ID          XPAR_LED_16BIT_DEVICE_ID
 #define INTC_DEVICE_ID              XPAR_INTC_0_DEVICE_ID
 
@@ -68,6 +67,12 @@
 #define CHORUSBUFFER_DEVICE_ID 	    XPAR_CHORUSBUFFER_0_DEVICE_ID
 #define CHORUSBUFFER_BASEADDR       XPAR_CHORUSBUFFER_0_S00_AXI_BASEADDR
 #define CHORUSBUFFER_HIGHADDR       XPAR_CHORUSBUFFER_0_S00_AXI_HIGHADDR
+
+// InputBuffer addresses
+
+#define INPUTBUFFER_DEVICE_ID       XPAR_INPUTBUFFER_0_DEVICE_ID
+#define INPUTBUFFER_BASEADDR        XPAR_INPUTBUFFER_0_S00_AXI_BASEADDR
+#define INPUTBUFFER_HIGHADDR        XPAR_INPUTBUFFER_0_S00_AXI_HIGHADDR
 
 // DelayBuffer addresses
 
@@ -109,7 +114,6 @@ XGpio       BTNInst;
 XGpio       SWInst;
 XGpio       LEDInst;
 
-XSpi        SpiInst;
 XIntc       IntrptCtlrInst;
 
 /****************************************************************************/
@@ -133,8 +137,6 @@ volatile unsigned int button_state;     // holds button values
 volatile unsigned int switch_state;     // holds button values
                   int rotcnt;           // holds rotary count
 
-static u8 SPI_RcvBuf[2];               	// holds SPI receive data (4 zeros + 12-bits)
-
 /****************************************************************************/
 /************************** MAIN PROGRAM ************************************/
 /****************************************************************************/
@@ -143,6 +145,12 @@ int main (void) {
 
     XStatus status;
     unsigned int leds;
+
+    unsigned int InputBuffValue = 0x00;
+    unsigned int ChorusBuffValue = 0x00;
+    unsigned int DelayBuffValue = 0x00;
+
+    unsigned int index = 0x00;
 
     // initialize the platform and the peripherals
 
@@ -171,6 +179,15 @@ int main (void) {
 
         leds = (button_state << 8) | (switch_state);
         XGpio_DiscreteWrite(&LEDInst, GPIO_CHANNEL_1, leds); 
+
+
+        // read the InputBuffer & write to delay buffer
+
+        for (index = 0; index < 65535; index ++) {
+
+            InputBuffValue = InputBuffer_ReadLine(index);
+            DelayBuffer_WriteLine(index, InputBuffValue);
+        }
 
     }
 
@@ -213,40 +230,10 @@ void switch_handler(void) {
 /***************************** FIT HANDLER **********************************/
 /****************************************************************************/
 
-void fit_handler(void) {
-
-    XStatus status;
-    static unsigned int i = 0x00;
-    unsigned int micData = 0x00;
-
-    if (i >= 65535) {
-        i = 0;
-    } 
-
-    status = XSpi_SetSlaveSelect(&SpiInst, MSK_PMOD_MIC_SS);
-
-    if (status != XST_SUCCESS) {
-        print("MAIN LOOP: Failed to select SPI slave!\r\n");
-    }
-
-    // Transfer the command and receive the mic dataADC count
-
-    status = XSpi_Transfer(&SpiInst, SPI_RcvBuf, SPI_RcvBuf, 2);
-
-    if (status != XST_SUCCESS) {
-        print("MAIN LOOP: Failed to transfer SPI!\r\n");
-    }
-
-    // SPI transfer was successful
-    // process it for cleaned up microphone signal
-
-    micData = ((SPI_RcvBuf[0] << 8) | (SPI_RcvBuf[1] << 4)) & 0x0000FFFF;
-    DelayBuffer_WriteLine(i, micData);
-
-    i++;
+/*void fit_handler(void) {
 
     return;
-}
+}*/
 
 /****************************************************************************/
 /************************* INIT PERIPHERALS *********************************/
@@ -255,7 +242,6 @@ void fit_handler(void) {
 XStatus init_peripherals(void) {
 
     int status;                 // status from Xilinx Lib calls
-    XSpi_Config *ConfigPtr;     // Pointer to SPI configuration data
 
     // initialize the button GPIO instance
 
@@ -327,50 +313,14 @@ XStatus init_peripherals(void) {
         print("INIT_PERIPH: Failed to initialize DelayBuffer!\r\n");
         return XST_FAILURE;
     }
+    // initialize the InputBuffer
 
-    // lookup SPI configuration
-
-    ConfigPtr = XSpi_LookupConfig(SPI_DEVICE_ID);
-
-    if (ConfigPtr == NULL) {
-        print("INIT_PERIPH: Couldn't find SPI device!\r\n");
-        return XST_DEVICE_NOT_FOUND;
-    }
-
-    // initialize the SPI device
-
-    status = XSpi_CfgInitialize(&SpiInst, ConfigPtr, ConfigPtr->BaseAddress);
+    status = InputBuffer_initialize(INPUTBUFFER_BASEADDR);
 
     if (status != XST_SUCCESS) {
-        print("INIT_PERIPH: Failed to initialize SPI device!\r\n");
+        print("INIT_PERIPH: Failed to initialize InputBuffer!\r\n");
         return XST_FAILURE;
     }
-
-    // Perform a self-test to ensure that it was built correctly
-
-    status = XSpi_SelfTest(&SpiInst);
-
-    if (status != XST_SUCCESS) {
-        print("INIT_PERIPH: SPI device failed self-test!\r\n");
-        return XST_FAILURE;
-    }
-
-    // Set the SPI device as a master,
-    // SS goes low for entire transaction (does not toggle every 8 bits)
-    // All other bits are OK as defaults
-
-    status = XSpi_SetOptions(&SpiInst, XSP_MASTER_OPTION | XSP_MANUAL_SSELECT_OPTION | XSP_CLK_ACTIVE_LOW_OPTION);
-
-    if (status != XST_SUCCESS) {
-        print("INIT_PERIPH: Failed to set SPI options!\r\n");
-        return XST_FAILURE;
-    }
-
-    // Start the SPI driver so that the device is enabled,
-    // and then disable the Global interrupt
-
-    XSpi_Start(&SpiInst);
-    XSpi_IntrGlobalDisable(&SpiInst);
 
     // initialize the interrupt controller
 
@@ -401,12 +351,12 @@ XStatus init_peripherals(void) {
 
     // connect the FIT handler to the interrupt
     
-    status = XIntc_Connect(&IntrptCtlrInst, FIT_INTERRUPT_ID, (XInterruptHandler)fit_handler, (void *)0);
+/*    status = XIntc_Connect(&IntrptCtlrInst, FIT_INTERRUPT_ID, (XInterruptHandler)fit_handler, (void *)0);
 
     if (status != XST_SUCCESS) {
         print("INIT_PERIPH: Failed to connect FIT handler as interrupt!\r\n");
         return XST_FAILURE;
-    }
+    }*/
 
     // start the interrupt controller such that interrupts are enabled for
     // all devices that cause interrupts, specifically real mode so that
@@ -423,8 +373,8 @@ XStatus init_peripherals(void) {
 
     XIntc_Enable(&IntrptCtlrInst, BTN_INTERRUPT_ID);
     XIntc_Enable(&IntrptCtlrInst, SW_INTERRUPT_ID);
-    XIntc_Enable(&IntrptCtlrInst, FIT_INTERRUPT_ID);
-
+/*    XIntc_Enable(&IntrptCtlrInst, FIT_INTERRUPT_ID);
+*/
     // successfully initialized... time to return
 
     return XST_SUCCESS;
