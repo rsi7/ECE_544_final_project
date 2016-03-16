@@ -7,7 +7,28 @@
  *
  *  Description:
  *  ------------
- */
+ *
+ * This application carries out DSP for the project.
+ * Depending on sw[1:0] state, one of the following effects will apply:
+ *
+ *      00: no effects
+ *      01: delay effect
+ *      10: chorus effect
+ *      11: delay + chorus effects
+ *
+ * This calculation is handled in the main loop, with chorus processing done
+ * in the ApplyChorus function. Values are read from the InputBuffer, 
+ * processed with DSP, and stored in the DelayBuffer for playback by the
+ * hardware module AudioOutput.
+ * 
+ * The FIT Handler runs at 16kHz but does not do anything except increment
+ * a static variable which never gets used. It was used for debugging SPI
+ * in earlier code versions.
+ * 
+ * The button handler and switch handler simply perform GPIO reads to update
+ * their respective global variables. The main loop then writes these values
+ * to the LEDs.
+*/
 
 /****************************************************************************/
 /***************************** Include Files ********************************/
@@ -158,6 +179,7 @@ typedef struct  chorusparams {
 
 void    button_handler(void);
 void    switch_handler(void);
+void    Apply_Chorus(unsigned int * value);
 
 XStatus init_peripherals(void);
 
@@ -184,13 +206,12 @@ int main (void) {
     unsigned int leds       = 0x00;
     unsigned int switch_fx  = 0x00;
 
-    unsigned int bufline     = 0x00;
-    unsigned int bufval_int  = 0x00;
+    unsigned int bufline   = 0x00;
 
-    float bufval1            = 0.0;
-    float bufval2            = 0.0;
-    float bufval3            = 0.0;
-    float bufval4            = 0.0;
+    unsigned int bufval1   = 0x00;
+    unsigned int bufval2   = 0x00;
+    unsigned int bufval3   = 0x00;
+    unsigned int bufval4   = 0x00;
 
     // initialize the platform and the peripherals
 
@@ -248,7 +269,7 @@ int main (void) {
                     bufval2 = ChorusBuffer_ReadLine(bufline - (BUFFER_DEPTH / 8));
                 }
                 
-                bufval2 = (bufval2 / 1.25);
+                bufval2 = (int) (((float) bufval2) / 1.25);
 
                 // Second instance of delay @ 1.0s
                 // amplitude at 60% of original input
@@ -258,7 +279,7 @@ int main (void) {
                     bufval3 = ChorusBuffer_ReadLine(bufline - (BUFFER_DEPTH / 4));
                 }
                 
-                bufval3 = (bufval3 / 1.66);
+                bufval3 = (int) (((float) bufval3) / 1.66);
 
                 // Third instance of delay @ 1.5s
                 // amplitude at 45% of original input
@@ -268,7 +289,7 @@ int main (void) {
                     bufval4 = ChorusBuffer_ReadLine(bufline - (BUFFER_DEPTH / 3));
                 }
                 
-                bufval4 = (bufval4 / 2.25);
+                bufval4 = (int) (((float) bufval4) / 2.25);
 
                 // Add delayed signals to current output
 
@@ -287,7 +308,7 @@ int main (void) {
                     bufval2 = ChorusBuffer_ReadLine(bufline - (BUFFER_DEPTH / 8));
                 }
 
-                bufval2 = (bufval2 / 1.25);
+                bufval2 = (int) (((float) bufval2) / 1.25);
 
                 // Second instance of delay @ 1.0s
                 // amplitude at 60% of original input
@@ -297,7 +318,7 @@ int main (void) {
                     bufval3 = ChorusBuffer_ReadLine(bufline - (BUFFER_DEPTH / 4));
                 }
 
-                bufval3 = (bufval3 / 1.66);
+                bufval3 = (int) (((float) bufval3) / 1.66);
 
                 // Third instance of delay @ 1.5s
                 // amplitude at 45% of original input
@@ -307,7 +328,7 @@ int main (void) {
                     bufval4 = ChorusBuffer_ReadLine(bufline - (BUFFER_DEPTH / 3));
                 }
 
-                bufval4 = (bufval4 / 2.25);
+                bufval4 = (int) (((float) bufval4) / 2.25);
 
                 // Overlay delayed signals to current output
                 bufval1 = bufval1 + bufval2 + bufval3 + bufval4;
@@ -315,7 +336,6 @@ int main (void) {
 
             // Write to output buffer with DSP-modified value
 
-            bufval_int = (int) bufval1;
             DelayBuffer_WriteLine(bufline, bufval1);
 
         } // end for loop
@@ -371,6 +391,8 @@ void fit_handler(void) {
     else {
         sample++;
     }
+
+    return;
 }
 
 /****************************************************************************/
@@ -522,8 +544,7 @@ XStatus init_peripherals(void) {
 /******************************* CHORUS EFFECT ******************************/
 /****************************************************************************/
 
-void Apply_Chorus(u16* value)
-{
+void Apply_Chorus(unsigned int * value) {
     /*  
     * August 24, 1998
     * Copyright (C) 1998 Juergen Mueller And Sundry Contributors
@@ -606,6 +627,7 @@ void Apply_Chorus(u16* value)
 
     st_chorus_stop();*/
  
+    return;
 }
 
 // // Prepare for processing.
