@@ -1,14 +1,26 @@
 // n4fpga.v - Top level module for ECE 544 Final Project
 //
-//
 // Modified by:	Rehan Iqbal
 // Organization: Portland State University
 //
 // Description:
 // 
+// This is the top-level module for the DSP Audio Player project.
 //
-// The module assumes that a PmodCLP is plugged into the JA and JB ports,
-// and that a PmodENC is plugged into the JD port (bottom row).  
+// There are three major components: the embedded system (EMBSYS), 
+// the AudioInput module, and the AudioOutput module. A 3MHz clock is
+// generated and sent to the on-board microphone, which returns PDM
+// data to be packaged by AudioInput. From there, it is written to the
+// InputBuffer with EMBSYS, processed in the app, then written to
+// DelayBuffer (also in EMBSYS). AudioOutput reads this buffer and
+// sends a PDM stream out to the on-board audio jack.
+//
+// PmodENC should be plugged into bottom-row of Port JD.
+// Plug the mono audio jack to a powered speaker (low-volume first).
+//
+// sw[15] controls whether the output is "wet" (delay / chorus)
+// or "dry" (no effects applied). It can just pass the PDM audio input
+// directly to the audio jack output.
 //
 //////////////////////////////////////////////////////////////////////
 
@@ -56,58 +68,44 @@ module n4fpga (
 
     // Audio output signals to mic jack
 
-    output              AUD_PWM,
-    output              AUD_SD,
-
-    // SPI microphone board
-
-    input 				SPI_MISO,
-    output 				SPI_SS,
-    output 				SPI_CLK,
+    output              AUD_PWM,                // Connected to the on-board Butterworth filter
+    output              AUD_SD,                 // Tie high to enable all four stages of the filter
 
     // Microphone signals
 
     input               micData,                // incoming PDM data from on-board mic -> system
     output              micClk,                 // 3MHz clock signal from system -> on-board mic      
-    output              micLRSel);              // outgoing 1'b1 signal to tie mic input to left channel
+    output              micLRSel);              // tie high to make mic input on left channel
 
     /******************************************************************/
     /* Local parameters and variables                                 */
     /******************************************************************/
 
-    wire                clk_100MHz;
-    wire 				clk_6MHz;
-    wire 				clk_3MHz;
+    wire                clk_100MHz;             // embedded system clock from ClockWiz
+    wire 				clk_6MHz;               // secondary clock from ClockWiz
+    wire 				clk_3MHz;               // divided clock for use by on-board mic
 
-    reg                 clk_262kHz_reg;
-    wire                clk_262kHz;
-    reg     [31:0]      count;
+    wire    [15:0]      addrb;                  // address: connects to Port B on DelayBuffer
+    wire    [15:0]      doutb;                  // data output: connects to Port B on DelayBuffer
 
-    wire                clk_1MHz;
-    wire                clk_1MHz_buff;
+    wire                wea;                    // write enable: connects to Port A on InputBuffer
+    wire    [15:0]      addra;                  // address: connects to Port A on InputBuffer
+    wire    [15:0]      dina;                   // data input: connects to Port A on InputBuffer
 
-    wire    [15:0]      addrb;
-    wire    [15:0]      doutb;
+    wire                micData_sync;           // 3-stage synchronized microphone data
 
-    wire                wea;
-    wire    [15:0]      addra;
-    wire    [15:0]      dina;
-
-    wire                PWM_out;
-    wire                micData_sync;
-
-    reg                 mic_sync1;
-    reg                 mic_sync2;
-    reg                 mic_sync3;
+    reg                 mic_sync1;              // stage 1
+    reg                 mic_sync2;              // stage 2
+    reg                 mic_sync3;              // stage 3
 
     /******************************************************************/
     /* Global Assignments                                             */
     /******************************************************************/
 
-    assign AUD_SD = 1'b1;
-    assign micLRSel = 1'b1;
+    assign AUD_SD = 1'b1;                       // tie high for all four on-board filter stages
+    assign micLRSel = 1'b1;                     // tie high for mic input on left channel
 
-    assign AUD_PWM = sw[15] ? PDM_out : micData_sync;
+    assign AUD_PWM = sw[15] ? PDM_out : micData_sync;       // toggle between wet & dry signal being played
     
     /******************************************************************/
     /* 3-stage synchronizer for micData                               */
@@ -148,33 +146,6 @@ module n4fpga (
 		.I 			(clk_3MHz),
 		.O			(micClk));
 
-    //******************************************************************/
-    //* 1.536MHz Clock Generator                                       */
-    //******************************************************************/
-
-    // Use built-in BUFR device to divide 3.072MHz clock --> 1.536MHz clock
-    // because ClockWiz cannot generate lower than 4MHz
-
-/*    BUFR  #(
-
-        .BUFR_DIVIDE    (2),
-        .SIM_DEVICE     ("7SERIES"))
-
-    ClkDivideBy2Again (
-
-        .I          (micClk),
-        .CE         (1'b1),
-        .CLR        (1'b0),
-        .O          (clk_1MHz));
-   
-    // Buffering the 1.536MHz clock
-    // then send it to the Audio Output module
-   
-    BUFG ClkDivBufAgain(
-
-        .I          (clk_1MHz),
-        .O          (clk_1MHz_buff));
-*/
     /******************************************************************/
     /* EMBSYS instantiation                                           */
     /******************************************************************/
@@ -240,12 +211,12 @@ module n4fpga (
 
     AudioOutput audiogen (
 
-        .sw             (sw[1:0]),
-        .data_in        (doutb),                // data read from the DelayBuffer
-        .clk            (micClk),               // 
+        .sw             (sw[1:0]),              // switch inputs (debugging)
+        .data_in        (doutb),                // read data from the DelayBuffer block memory
+        .clk            (micClk),               // 3MHz clock shared with on-board mic
 
-        .PDM_out        (PDM_out),              // output audio stream going to on-board jack
-        .read_address   (addrb));               // data address to read in DelayBuffer
+        .PDM_out        (PDM_out),              // output PDM stream going to on-board audio jack
+        .read_address   (addrb));               // read address for the DelayBuffer block memory
 
     /******************************************************************/
     /* AudioInput  instantiation                                      */
@@ -253,13 +224,12 @@ module n4fpga (
 
     AudioInput audioread (
 
-        .sw             (sw[1:0]),
-        .clk            (micClk),               // 3MHz clock
-        .PDM_in         (micData_sync),         // synchronized PDM data from on-board mic
+        .sw             (sw[1:0]),              // switch inputs (debugging)
+        .clk            (micClk),               // 3MHz clock shared with on-board mic
+        .PDM_in         (micData_sync),         // synchronized PDM data coming from on-board mic
 
         .write_address  (addra),                // data address to read in DelayBuffer
-        .write_enable   (wea),
-        .write_data     (dina));
-
+        .write_enable   (wea),                  // write enable flag for InputBuffer block memory
+        .write_data     (dina));                // write data for InputBuffer block memory
 
 endmodule

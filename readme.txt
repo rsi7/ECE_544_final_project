@@ -90,3 +90,19 @@ SOFTWARE:
 - Tested drivers in application (grainy audio output using SPI mic input)
 - Removed xilkernel and replaced with standalone OS
 - Added FIT handler + added switch handler
+
+///////////////////////////////////////////////////////////
+//////////////////////// Version 6 ////////////////////////
+///////////////////////////////////////////////////////////
+
+HARDWARE:
+
+- Created InputBuffer IP from BlockRAM (16-bit wide, 65k deep)
+- Added IP to embedded system with AXI (read-only)
+- Created AudioInput module to read & process PDM stream
+
+SOFTWARE:
+
+- Wrote InputBuffer drivers
+- Fixed bugs with InputBuffer base address
+- Tested AudioInput --> InputBuffer --> DelayBuffer --> AudioOutput

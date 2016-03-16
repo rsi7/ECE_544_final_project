@@ -1,9 +1,11 @@
-// AudioOutput.v --> simple one line description of module
+// AudioOutput.v --> handles PDM audio output processing
 //
 // Description:
 // ------------
-// Give a longer, paragraph description here.
-//
+// This module reads in a 16-bit value from the DelayBuffer and plays it out, bit-by-bit,
+// to the Nexys4DDR on-board audio jack. The input ports should be connected directly to the
+// Port B pins on the DelayBuffer IP.
+// 
 ////////////////////////////////////////////////////////////////////////////////////////////////
 
 module AudioOutput #(
@@ -51,24 +53,12 @@ module AudioOutput #(
 
 	always @(posedge clk) begin
 		
-		case (sw[1:0])
+		// need to allow 2 clock cycles for read latency
 
-		2'b00 : if (bit_index == 4'b1100) begin
-					read_address <= read_address + 1'b1;
-				end
+		if (bit_index == 4'b1101) begin
+			read_address <= read_address + 1'b1;
+		end
 
-		2'b01 : if (bit_index == 4'b1101) begin
-					read_address <= read_address + 1'b1;
-				end
-
-		2'b10 : if (bit_index == 4'b1110) begin
-					read_address <= read_address + 1'b1;
-				end
-
-		2'b11 : if (bit_index == 4'b1111) begin
-					read_address <= read_address + 1'b1;
-				end
-		endcase
 	end
 
 	/******************************************************************/

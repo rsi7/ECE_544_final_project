@@ -1,8 +1,10 @@
-// AudioInput.v --> simple one line description of module
+// AudioInput.v --> processes input PDM stream
 //
 // Description:
 // ------------
-// Give a longer, paragraph description here.
+// This module reads the 1 - 3 MHz PDM audio stream coming from the Nexys4DDR on-board mic,
+// and then packages it into 16-bit words to write into the InputBuffer. The output pins
+// should be connected directly to the Port A input pins on the InputBuffer IP.
 //
 ////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -60,7 +62,7 @@ module AudioInput #(
 
 		else begin
 			write_address <= write_address;
-			write_enable <= 1'b1;
+			write_enable <= 1'b0;
 		end
 
 	end
