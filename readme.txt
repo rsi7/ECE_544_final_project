@@ -100,9 +100,40 @@ HARDWARE:
 - Created InputBuffer IP from BlockRAM (16-bit wide, 65k deep)
 - Added IP to embedded system with AXI (read-only)
 - Created AudioInput module to read & process PDM stream
+- Fixed cross-clock domain issue in AudioInput
 
 SOFTWARE:
 
 - Wrote InputBuffer drivers
 - Fixed bugs with InputBuffer base address
 - Tested AudioInput --> InputBuffer --> DelayBuffer --> AudioOutput
+
+///////////////////////////////////////////////////////////
+//////////////////////// Version 6 ////////////////////////
+///////////////////////////////////////////////////////////
+
+HARDWARE:
+
+- Removed SPI references from XDC and EMBSYS
+- Removed 1MHz clock generator
+
+SOFTWARE:
+
+- Merged Chad + Neil's software with final_project.c
+- Got DSP working successfully on PDM audio input
+
+///////////////////////////////////////////////////////////
+//////////////////////// Version 7 ////////////////////////
+///////////////////////////////////////////////////////////
+
+HARDWARE:
+
+- Final working version of the hardware
+- Tied AudioOutput to 4'b1101 read cycle
+- Minor cleanup
+
+SOFTWARE:
+
+- Added commenting
+- Fixed issue with float <--> int conversion
+- Added FIT Handler back in to increment unused variable
